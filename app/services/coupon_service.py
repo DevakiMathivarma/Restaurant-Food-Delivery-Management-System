@@ -147,8 +147,15 @@ def validate_and_calculate_discount(coupon_code: str, customer_id: int, order_su
 
     now = datetime.now(timezone.utc)
 
+    # sqlite doesn't reliably preserve timezone info on datetime columns -
+    # start_date/expiry_date can come back "naive" even though the
+    # column is declared timezone=True. attach utc explicitly if it's
+    # missing, so the comparison below never fails
+    start = coupon.start_date if coupon.start_date.tzinfo else coupon.start_date.replace(tzinfo=timezone.utc)
+    expiry = coupon.expiry_date if coupon.expiry_date.tzinfo else coupon.expiry_date.replace(tzinfo=timezone.utc)
+
     # expired coupons cannot be applied - level 6 business rule
-    if now < coupon.start_date or now > coupon.expiry_date:
+    if now < start or now > expiry:
 
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This coupon is not valid at this time.")
 
@@ -162,9 +169,7 @@ def validate_and_calculate_discount(coupon_code: str, customer_id: int, order_su
 
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This coupon has reached its usage limit.")
 
-    # prevent duplicate coupon usage - level 6 business rule. our
-    # earlier design decision: one customer can only successfully use
-    # any given coupon once, checked against their real past orders
+    # prevent duplicate coupon usage - level 6 business rule
     already_used = db.query(Order).filter(Order.customer_id == customer_id, Order.coupon_id == coupon.id).first()
 
     if already_used:
